@@ -52,7 +52,7 @@ io_registry_entry_t __idle_osx_service;
 
 static pthread_t idle_loop_thread;
 pthread_mutex_t idle_time_mutex;
-static uint64 max_idle_time = 60; // Seconds
+static uint64 max_idle_time = 600; // Seconds
 
 const uint64 ACTIVITY_CHECK_RESOLUTION = 5; // Seconds
 const uint64 MIN_IDLE_TIME = 15; // Seconds
