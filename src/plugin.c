@@ -9,13 +9,14 @@
 #include <string.h>
 #include <assert.h>
 
-#ifdef __APPLE__
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreServices/CoreServices.h>
 #include <IOKit/IOKitLib.h>
 #include <IOKit/hidsystem/IOHIDShared.h>
 #include <IOKit/hidsystem/IOHIDParameter.h>
-
 #include <unistd.h>
 #include <pthread.h>
 #endif
@@ -47,11 +48,16 @@
 static struct TS3Functions ts3Functions;
 static char* pluginID = NULL;
 
+#ifdef _WIN32
+
+#else
 static mach_port_t __idle_osx_master_port;
 io_registry_entry_t __idle_osx_service;
 
 static pthread_t idle_loop_thread;
 pthread_mutex_t idle_time_mutex;
+#endif
+
 static uint64 max_idle_time = 600; // Seconds
 
 const uint64 ACTIVITY_CHECK_RESOLUTION = 5; // Seconds
@@ -93,6 +99,10 @@ void ts3plugin_setFunctionPointers(const struct TS3Functions funcs) {
  */
 int ts3plugin_init() {
     printf("PLUGIN: init\n");
+
+#ifdef _WIN32
+	return 0;
+#else
 		pthread_mutex_init(&idle_time_mutex, NULL);
 		init_idle();
 
@@ -102,8 +112,8 @@ int ts3plugin_init() {
 		} else {
 			printf("PLUGIN: idle loop thread created\n");
 		}
+#endif
 
-    return 0;
 }
 
 /* Custom code called right before the plugin is unloaded */
@@ -111,6 +121,9 @@ void ts3plugin_shutdown() {
     /* Your plugin cleanup code here */
     printf("PLUGIN: shutdown\n");
 
+#ifdef _WIN32
+
+#else
 		printf("Cancelling idle loop thread\n");
 		pthread_cancel(idle_loop_thread);
 		pthread_join(idle_loop_thread, NULL);
@@ -118,6 +131,7 @@ void ts3plugin_shutdown() {
 
 		cleanup_idle();
 		pthread_mutex_destroy(&idle_time_mutex);
+#endif
 	/*
 	 * Note:
 	 * If your plugin implements a settings dialog, it must be closed and deleted here, else the
@@ -217,13 +231,17 @@ int ts3plugin_processCommand(uint64 serverConnectionHandlerID, const char* comma
 				if (idle_time < MIN_IDLE_TIME) {
 					ts3Functions.printMessageToCurrentTab("idle_time below minimum threshold");
 				} else {
+#ifdef _WIN32
+
+#else
 					pthread_mutex_lock(&idle_time_mutex);
 					max_idle_time = idle_time;
 					pthread_mutex_unlock(&idle_time_mutex);
+#endif
 				}
 			} else {
 				char tbuf[COMMAND_BUFSIZE];
-				sprintf(tbuf, "max idle time: %llu\n", max_idle_time);
+				sprintf_s(tbuf, "max idle time: %llu\n", max_idle_time);
 				ts3Functions.printMessageToCurrentTab(tbuf);
 			}
 			break;
@@ -293,12 +311,19 @@ void *idle_loop(void* callback) {
 				//}
 			}
 			printf("PLUGIN: sleeping for: %llu seconds\n", (sleep_time));
+#ifdef _WIN32
+			Sleep(sleep_time);
+#else
 			sleep(sleep_time);
+#endif
 			sleep_time = ACTIVITY_CHECK_RESOLUTION;
 		}
 }
 
 int init_idle() {
+#ifdef _WIN32
+
+#else
 	io_iterator_t iter;
 	CFMutableDictionaryRef hid_match;
 
@@ -317,13 +342,21 @@ int init_idle() {
 
 	IOObjectRelease(iter);
 	return 0;
+#endif
 }
 
 void cleanup_idle() {
+#ifdef _WIN32
+
+#else
 	IOObjectRelease(__idle_osx_service);
+#endif
 }
 
 uint64 get_idle_time() {
+#ifdef _WIN32
+	return 0;
+#else
 	CFMutableDictionaryRef properties = 0;
 	CFTypeRef obj = NULL;
 	uint64_t tHandle = 0;
@@ -357,6 +390,7 @@ uint64 get_idle_time() {
 
 	CFRelease((CFTypeRef)properties);
 	return tHandle;
+#endif
 }
 
 
