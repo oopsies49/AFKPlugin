@@ -11,6 +11,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include "winpthreads.h"
 #else
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreServices/CoreServices.h>
@@ -53,15 +54,16 @@ static char* pluginID = NULL;
 #else
 static mach_port_t __idle_osx_master_port;
 io_registry_entry_t __idle_osx_service;
+#endif
 
 static pthread_t idle_loop_thread;
 pthread_mutex_t idle_time_mutex;
-#endif
 
 static uint64 max_idle_time = 600; // Seconds
 
 const uint64 ACTIVITY_CHECK_RESOLUTION = 5; // Seconds
 const uint64 MIN_IDLE_TIME = 15; // Seconds
+const uint64 MILLISECONDS_TO_SECONDS = 1000;
 
 /* Unique name identifying this plugin */
 const char* ts3plugin_name() {
@@ -100,19 +102,17 @@ void ts3plugin_setFunctionPointers(const struct TS3Functions funcs) {
 int ts3plugin_init() {
     printf("PLUGIN: init\n");
 
-#ifdef _WIN32
-	return 0;
-#else
-		pthread_mutex_init(&idle_time_mutex, NULL);
-		init_idle();
 
-		if (pthread_create(&idle_loop_thread, NULL, idle_loop, NULL)){
-			printf("PLUGIN: failed creating idle loop thread\n");
-			return 1;
-		} else {
-			printf("PLUGIN: idle loop thread created\n");
-		}
-#endif
+	pthread_mutex_init(&idle_time_mutex, NULL);
+	init_idle();
+
+	if (pthread_create(&idle_loop_thread, NULL, idle_loop, NULL)){
+		printf("PLUGIN: failed creating idle loop thread\n");
+		return 1;
+	} else {
+		printf("PLUGIN: idle loop thread created\n");
+	}
+
 
 }
 
@@ -121,17 +121,14 @@ void ts3plugin_shutdown() {
     /* Your plugin cleanup code here */
     printf("PLUGIN: shutdown\n");
 
-#ifdef _WIN32
+	printf("Cancelling idle loop thread\n");
+	pthread_cancel(idle_loop_thread);
+	pthread_join(idle_loop_thread, NULL);
+	printf("Idle thread cancelled\n");
 
-#else
-		printf("Cancelling idle loop thread\n");
-		pthread_cancel(idle_loop_thread);
-		pthread_join(idle_loop_thread, NULL);
-		printf("Idle thread cancelled\n");
+	cleanup_idle();
+	pthread_mutex_destroy(&idle_time_mutex);
 
-		cleanup_idle();
-		pthread_mutex_destroy(&idle_time_mutex);
-#endif
 	/*
 	 * Note:
 	 * If your plugin implements a settings dialog, it must be closed and deleted here, else the
@@ -231,13 +228,9 @@ int ts3plugin_processCommand(uint64 serverConnectionHandlerID, const char* comma
 				if (idle_time < MIN_IDLE_TIME) {
 					ts3Functions.printMessageToCurrentTab("idle_time below minimum threshold");
 				} else {
-#ifdef _WIN32
-
-#else
 					pthread_mutex_lock(&idle_time_mutex);
 					max_idle_time = idle_time;
 					pthread_mutex_unlock(&idle_time_mutex);
-#endif
 				}
 			} else {
 				char tbuf[COMMAND_BUFSIZE];
@@ -322,7 +315,7 @@ void *idle_loop(void* callback) {
 
 int init_idle() {
 #ifdef _WIN32
-
+	return 0;
 #else
 	io_iterator_t iter;
 	CFMutableDictionaryRef hid_match;
@@ -355,7 +348,13 @@ void cleanup_idle() {
 
 uint64 get_idle_time() {
 #ifdef _WIN32
-	return 0;
+	LASTINPUTINFO input_info;
+	if (GetLastInputInfo(&input_info)) {
+		return GetTickCount() - input_info.dwTime / MILLISECONDS_TO_SECONDS;
+	} else {
+		printf("error getting idle time");
+		return 0;
+	}
 #else
 	CFMutableDictionaryRef properties = 0;
 	CFTypeRef obj = NULL;
